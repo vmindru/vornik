@@ -420,7 +420,7 @@
                  show the raw spend + step count so operators see who's
                  driving the bill. -->
             {{if or .TopModels24h .TopModels}}
-            <div class="grid grid-cols-1 2xl:grid-cols-2 gap-6">
+            <div class="space-y-6">
                 {{if .TopModels24h}}
                 <div class="glass rounded-xl border border-surface-600 overflow-hidden">
                     {{template "sectionHeader" (dict "Title" "Model Leaderboard · last 24 hours" "MetaText" "ranked by total cost")}}

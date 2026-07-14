@@ -415,39 +415,74 @@
 
             </div>
 
-            <!-- Model Leaderboard (top 10 role+model combos by 30-day cost).
+            <!-- Model Leaderboards (top 10 role+model combos by window cost).
                  Effective-cost view is on the Grafana dashboard; here we just
                  show the raw spend + step count so operators see who's
                  driving the bill. -->
-            {{if .TopModels}}
-            <div class="glass rounded-xl border border-surface-600 overflow-hidden">
-                {{template "sectionHeader" (dict "Title" "Model Leaderboard · last 30 days" "MetaText" "ranked by total cost")}}
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-sm">
-                        <thead><tr class="border-b border-surface-600/60">
-                            <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-ink-500 uppercase tracking-wider">#</th>
-                            <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-ink-500 uppercase tracking-wider">Role</th>
-                            <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-ink-500 uppercase tracking-wider">Model</th>
-                            <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-ink-500 uppercase tracking-wider">Steps</th>
-                            <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-ink-500 uppercase tracking-wider">Tokens in</th>
-                            <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-ink-500 uppercase tracking-wider">Tokens out</th>
-                            <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-ink-500 uppercase tracking-wider">Cost</th>
-                        </tr></thead>
-                        <tbody class="divide-y divide-surface-600/30">
-                            {{range $i, $r := .TopModels}}
-                            <tr class="hover:bg-surface-700/40 transition-colors">
-                                <td class="px-4 py-1.5 text-ink-500 tabular-nums">{{add $i 1}}</td>
-                                <td class="px-4 py-1.5 text-ink-300">{{$r.Role}}</td>
-                                <td class="px-4 py-1.5 text-ink-500 font-mono text-xs">{{$r.Model}}</td>
-                                <td class="px-4 py-1.5 text-right text-ink-400 tabular-nums">{{$r.StepCount}}</td>
-                                <td class="px-4 py-1.5 text-right text-ink-400 tabular-nums">{{fmtTokens $r.PromptTokens}}</td>
-                                <td class="px-4 py-1.5 text-right text-ink-400 tabular-nums">{{fmtTokens $r.CompletionTokens}}</td>
-                                <td class="px-4 py-1.5 text-right text-accent-400 font-semibold tabular-nums">{{fmtUSD $r.CostUSD}}</td>
-                            </tr>
-                            {{end}}
-                        </tbody>
-                    </table>
+            {{if or .TopModels24h .TopModels}}
+            <div class="grid grid-cols-1 2xl:grid-cols-2 gap-6">
+                {{if .TopModels24h}}
+                <div class="glass rounded-xl border border-surface-600 overflow-hidden">
+                    {{template "sectionHeader" (dict "Title" "Model Leaderboard · last 24 hours" "MetaText" "ranked by total cost")}}
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm">
+                            <thead><tr class="border-b border-surface-600/60">
+                                <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-ink-500 uppercase tracking-wider">#</th>
+                                <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-ink-500 uppercase tracking-wider">Role</th>
+                                <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-ink-500 uppercase tracking-wider">Model</th>
+                                <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-ink-500 uppercase tracking-wider">Steps</th>
+                                <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-ink-500 uppercase tracking-wider">Tokens in</th>
+                                <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-ink-500 uppercase tracking-wider">Tokens out</th>
+                                <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-ink-500 uppercase tracking-wider">Cost</th>
+                            </tr></thead>
+                            <tbody class="divide-y divide-surface-600/30">
+                                {{range $i, $r := .TopModels24h}}
+                                <tr class="hover:bg-surface-700/40 transition-colors">
+                                    <td class="px-4 py-1.5 text-ink-500 tabular-nums">{{add $i 1}}</td>
+                                    <td class="px-4 py-1.5 text-ink-300">{{$r.Role}}</td>
+                                    <td class="px-4 py-1.5 text-ink-500 font-mono text-xs">{{$r.Model}}</td>
+                                    <td class="px-4 py-1.5 text-right text-ink-400 tabular-nums">{{$r.StepCount}}</td>
+                                    <td class="px-4 py-1.5 text-right text-ink-400 tabular-nums">{{fmtTokens $r.PromptTokens}}</td>
+                                    <td class="px-4 py-1.5 text-right text-ink-400 tabular-nums">{{fmtTokens $r.CompletionTokens}}</td>
+                                    <td class="px-4 py-1.5 text-right text-accent-400 font-semibold tabular-nums">{{fmtUSD $r.CostUSD}}</td>
+                                </tr>
+                                {{end}}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
+                {{end}}
+                {{if .TopModels}}
+                <div class="glass rounded-xl border border-surface-600 overflow-hidden">
+                    {{template "sectionHeader" (dict "Title" "Model Leaderboard · last 30 days" "MetaText" "ranked by total cost")}}
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm">
+                            <thead><tr class="border-b border-surface-600/60">
+                                <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-ink-500 uppercase tracking-wider">#</th>
+                                <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-ink-500 uppercase tracking-wider">Role</th>
+                                <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-ink-500 uppercase tracking-wider">Model</th>
+                                <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-ink-500 uppercase tracking-wider">Steps</th>
+                                <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-ink-500 uppercase tracking-wider">Tokens in</th>
+                                <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-ink-500 uppercase tracking-wider">Tokens out</th>
+                                <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-ink-500 uppercase tracking-wider">Cost</th>
+                            </tr></thead>
+                            <tbody class="divide-y divide-surface-600/30">
+                                {{range $i, $r := .TopModels}}
+                                <tr class="hover:bg-surface-700/40 transition-colors">
+                                    <td class="px-4 py-1.5 text-ink-500 tabular-nums">{{add $i 1}}</td>
+                                    <td class="px-4 py-1.5 text-ink-300">{{$r.Role}}</td>
+                                    <td class="px-4 py-1.5 text-ink-500 font-mono text-xs">{{$r.Model}}</td>
+                                    <td class="px-4 py-1.5 text-right text-ink-400 tabular-nums">{{$r.StepCount}}</td>
+                                    <td class="px-4 py-1.5 text-right text-ink-400 tabular-nums">{{fmtTokens $r.PromptTokens}}</td>
+                                    <td class="px-4 py-1.5 text-right text-ink-400 tabular-nums">{{fmtTokens $r.CompletionTokens}}</td>
+                                    <td class="px-4 py-1.5 text-right text-accent-400 font-semibold tabular-nums">{{fmtUSD $r.CostUSD}}</td>
+                                </tr>
+                                {{end}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {{end}}
             </div>
             {{end}}
 

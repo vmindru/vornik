@@ -23,8 +23,9 @@ type DashboardData struct {
 	TaskCounts   map[persistence.TaskStatus]int64
 	// 2026.4.11+ financial + model-performance summary. Zero values
 	// when task_llm_usage is empty or the repo isn't wired (old deployments).
-	Spend     DashboardSpend
-	TopModels []persistence.RoleModelSpend // top 10 by 30d cost
+	Spend        DashboardSpend
+	TopModels24h []persistence.RoleModelSpend // top 10 by 24h cost
+	TopModels    []persistence.RoleModelSpend // top 10 by 30d cost
 
 	// Landing-page tiles (2026-04-30). Pulls in-flight signals into
 	// one front door so operators don't have to bookmark per-page
@@ -294,17 +295,26 @@ func (s *Server) Dashboard(w http.ResponseWriter, r *http.Request) {
 				w.setter(v)
 			}
 		}
-		if rows, err := s.llmUsageRepo.AggregateByRoleModel(ctx, now.Add(-30*24*time.Hour), time.Time{}, 10, ""); err == nil {
+		loadLeaderboard := func(since time.Time, setter func([]persistence.RoleModelSpend), label string) {
+			rows, err := s.llmUsageRepo.AggregateByRoleModel(ctx, since, time.Time{}, 10, "")
+			if err != nil {
+				s.logger.Warn().Err(err).Str("window", label).Msg("failed to load model leaderboard for dashboard")
+				return
+			}
 			// Replace raw role identifiers (kg_extractor, judge, ...)
 			// with operator-facing labels for display. The DB rows
 			// stay raw — this is a render-side transform only.
 			for i := range rows {
 				rows[i].Role = displayRole(rows[i].Role)
 			}
-			data.TopModels = rows
-		} else {
-			s.logger.Warn().Err(err).Msg("failed to load model leaderboard for dashboard")
+			setter(rows)
 		}
+		loadLeaderboard(now.Add(-24*time.Hour), func(rows []persistence.RoleModelSpend) {
+			data.TopModels24h = rows
+		}, "24h")
+		loadLeaderboard(now.Add(-30*24*time.Hour), func(rows []persistence.RoleModelSpend) {
+			data.TopModels = rows
+		}, "30d")
 
 		// Hourly buckets for the 24h sparkline. We bucket client-side
 		// from the raw rows because the repo doesn't expose a bucketed

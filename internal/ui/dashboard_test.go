@@ -47,9 +47,11 @@ func TestSparklinePoints(t *testing.T) {
 // Only the methods Dashboard touches are implemented; the rest panic
 // loudly so a regression that calls a new method shows up clearly.
 type stubLLMUsageRepo struct {
-	rows  []*persistence.TaskLLMUsage
-	sum   float64
-	roles []persistence.RoleModelSpend
+	rows     []*persistence.TaskLLMUsage
+	sum      float64
+	roles    []persistence.RoleModelSpend
+	roles24h []persistence.RoleModelSpend
+	roles30d []persistence.RoleModelSpend
 }
 
 func (s *stubLLMUsageRepo) Record(context.Context, *persistence.TaskLLMUsage) error { return nil }
@@ -63,8 +65,14 @@ func (s *stubLLMUsageRepo) SumCost(context.Context, time.Time, time.Time) (float
 func (s *stubLLMUsageRepo) SumCostByProject(context.Context, string, time.Time, time.Time) (float64, error) {
 	return 0, nil
 }
-func (s *stubLLMUsageRepo) AggregateByRoleModel(context.Context, time.Time, time.Time, int, string) ([]persistence.RoleModelSpend, error) {
-	return s.roles, nil
+func (s *stubLLMUsageRepo) AggregateByRoleModel(_ context.Context, since, _ time.Time, _ int, _ string) ([]persistence.RoleModelSpend, error) {
+	if len(s.roles24h) == 0 && len(s.roles30d) == 0 {
+		return s.roles, nil
+	}
+	if time.Since(since) < 48*time.Hour {
+		return s.roles24h, nil
+	}
+	return s.roles30d, nil
 }
 
 // Aggregations added by the spend deep-dive. Stubs return nil so
@@ -150,6 +158,48 @@ func TestDashboardRendersWithSpend(t *testing.T) {
 	// The headline figure must be there too.
 	if !strings.Contains(body, "$12.34") {
 		t.Errorf("dashboard body missing 24h spend headline $12.34:\n%s", body)
+	}
+}
+
+func TestDashboard_ModelLeaderboardsRender24hAnd30d(t *testing.T) {
+	repo := &stubLLMUsageRepo{
+		roles24h: []persistence.RoleModelSpend{{
+			Role:             "kg_relationship_extractor",
+			Model:            "model-24h",
+			StepCount:        3,
+			PromptTokens:     1200,
+			CompletionTokens: 400,
+			CostUSD:          0.12,
+		}},
+		roles30d: []persistence.RoleModelSpend{{
+			Role:             "kg_entity_resolver",
+			Model:            "model-30d",
+			StepCount:        9,
+			PromptTokens:     3200,
+			CompletionTokens: 900,
+			CostUSD:          0.98,
+		}},
+	}
+	srv := NewServer(WithLLMUsageRepository(repo), WithOnboardingDetector(alreadyOnboardedDetector()))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("dashboard returned %d, body: %s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Model Leaderboard · last 24 hours") {
+		t.Fatalf("dashboard missing 24h leaderboard heading:\n%s", body)
+	}
+	if !strings.Contains(body, "Model Leaderboard · last 30 days") {
+		t.Fatalf("dashboard missing 30d leaderboard heading:\n%s", body)
+	}
+	if !strings.Contains(body, "Memory · Relationship Extractor") || !strings.Contains(body, "model-24h") {
+		t.Fatalf("dashboard missing 24h leaderboard row:\n%s", body)
+	}
+	if !strings.Contains(body, "Memory · Entity Resolver") || !strings.Contains(body, "model-30d") {
+		t.Fatalf("dashboard missing 30d leaderboard row:\n%s", body)
 	}
 }
 

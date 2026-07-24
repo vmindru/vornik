@@ -1364,6 +1364,11 @@ selectors. Typical use is bulk-promoting a backlog of untagged chunks:
       --to=github.com/acme/myrepo \
       --source-name-like='docs-%'
 
+  # Apply an approved classifier report's reviewed IDs:
+  vornikctl memory scope retag -p my-project \
+      --from=source/scope --to=target/scope \
+      --chunk-ids=chunk-a,chunk-b --dry-run
+
 Defaults: --from is empty (NULL / uncategorized chunks). Pass --from=X
 to migrate a specific scope; pass --source-name-like to narrow.
 
@@ -1379,6 +1384,7 @@ vornikctl memory scope retag [flags]
 | `--dry-run` | `false` | Show affected count without writing |
 | `--from` |  | Source scope to promote from. Empty / unset = NULL (uncategorized chunks). Pass '*' to retag cross-cutting chunks. |
 | `--source-name-like` |  | Optional source_name SQL LIKE pattern to narrow which chunks get retagged (e.g. 'lld-%'). |
+| `--chunk-ids` |  | Comma-separated reviewed chunk IDs. Combines with `--from` and `--source-name-like`. |
 | `--to` |  | Target scope to stamp on matched chunks (required). '*' = cross-cutting; '' is rejected (would un-tag). |
 | `--yes` | `false` | Skip the interactive confirmation prompt |
 | `-p`, `--project` |  | Project ID (required) |
@@ -2450,4 +2456,3 @@ vornikctl workflow validate <path> [flags]
 |---|---|---|
 | `--fix` | `false` | Print suggested fixes for findings that have a mechanical hint |
 | `--json` | `false` | Output the validation report as JSON |
-

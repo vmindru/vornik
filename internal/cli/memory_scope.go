@@ -125,12 +125,13 @@ func runMemoryScopeList(cmd *cobra.Command, args []string) error {
 }
 
 var (
-	memoryScopeRetagProject string
-	memoryScopeRetagFrom    string
-	memoryScopeRetagTo      string
-	memoryScopeRetagPattern string
-	memoryScopeRetagDryRun  bool
-	memoryScopeRetagYes     bool
+	memoryScopeRetagProject  string
+	memoryScopeRetagFrom     string
+	memoryScopeRetagTo       string
+	memoryScopeRetagPattern  string
+	memoryScopeRetagChunkIDs string
+	memoryScopeRetagDryRun   bool
+	memoryScopeRetagYes      bool
 )
 
 var memoryScopeRetagCmd = &cobra.Command{
@@ -167,6 +168,8 @@ func init() {
 		"Target scope to stamp on matched chunks (required). '*' = cross-cutting; '' is rejected (would un-tag).")
 	memoryScopeRetagCmd.Flags().StringVar(&memoryScopeRetagPattern, "source-name-like", "",
 		"Optional source_name SQL LIKE pattern to narrow which chunks get retagged (e.g. 'lld-%').")
+	memoryScopeRetagCmd.Flags().StringVar(&memoryScopeRetagChunkIDs, "chunk-ids", "",
+		"Comma-separated reviewed chunk IDs to retag")
 	memoryScopeRetagCmd.Flags().BoolVar(&memoryScopeRetagDryRun, "dry-run", false, "Show affected count without writing")
 	memoryScopeRetagCmd.Flags().BoolVar(&memoryScopeRetagYes, "yes", false, "Skip the interactive confirmation prompt")
 	_ = memoryScopeRetagCmd.MarkFlagRequired("project")
@@ -189,15 +192,28 @@ func runMemoryScopeRetag(cmd *cobra.Command, args []string) error {
 	// bound; the from/source-name filters add params as needed.
 	clauses := []string{"project_id = $1"}
 	params := []any{memoryScopeRetagProject}
-	if memoryScopeRetagFrom == "" {
+	if memoryScopeRetagFrom == "" && strings.TrimSpace(memoryScopeRetagChunkIDs) == "" {
 		clauses = append(clauses, "repo_scope IS NULL")
-	} else {
+	} else if memoryScopeRetagFrom != "" {
 		params = append(params, memoryScopeRetagFrom)
 		clauses = append(clauses, fmt.Sprintf("repo_scope = $%d", len(params)))
 	}
 	if memoryScopeRetagPattern != "" {
 		params = append(params, memoryScopeRetagPattern)
 		clauses = append(clauses, fmt.Sprintf("source_name LIKE $%d", len(params)))
+	}
+	if raw := strings.TrimSpace(memoryScopeRetagChunkIDs); raw != "" {
+		ids := make([]string, 0)
+		for _, id := range strings.Split(raw, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) == 0 {
+			return fmt.Errorf("--chunk-ids must contain at least one ID")
+		}
+		params = append(params, ids)
+		clauses = append(clauses, fmt.Sprintf("id = ANY($%d)", len(params)))
 	}
 	whereSQL := strings.Join(clauses, " AND ")
 
@@ -216,6 +232,9 @@ func runMemoryScopeRetag(cmd *cobra.Command, args []string) error {
 	fmt.Printf("To scope:          %s\n", memoryScopeRetagTo)
 	if memoryScopeRetagPattern != "" {
 		fmt.Printf("Source-name LIKE:  %s\n", memoryScopeRetagPattern)
+	}
+	if memoryScopeRetagChunkIDs != "" {
+		fmt.Printf("Chunk IDs:         %s\n", memoryScopeRetagChunkIDs)
 	}
 	fmt.Printf("Affected chunks:   %d\n", n)
 	if memoryScopeRetagDryRun {

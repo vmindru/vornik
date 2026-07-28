@@ -29,10 +29,10 @@ func completeWithRetry(ctx context.Context, client chat.Provider, msgs []chat.Me
 	// Bound runaway reasoning models: graph extraction emits small JSON
 	// (entities/relations), but a small reasoning model (gpt-oss-20b) could
 	// loop to its 16384-token cap with finish_reason=length and empty output,
-	// burning ~80s per attempt (incident 2026-06-13). 8192 is generous for the
-	// real output (observed legit completions ≤2604 tokens) while halving the
-	// worst-case waste on any stage still on a small model.
-	ctx = chat.WithRequestMaxTokens(ctx, 8192)
+	// burning ~80s per attempt (incident 2026-06-13). 4096 covers the
+	// observed legitimate output (≤2604 tokens) while bounding the runaway
+	// path more tightly for graph stages using a small reasoning model.
+	ctx = chat.WithRequestMaxTokens(ctx, 4096)
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		resp, err := client.Complete(ctx, msgs)

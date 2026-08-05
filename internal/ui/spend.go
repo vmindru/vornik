@@ -119,6 +119,16 @@ type SpendData struct {
 	// with no attributed key collapse into one "Unattributed" bucket.
 	ByAPIKey []APIKeySpendRow
 
+	// MemoryUsageByKey is a non-cost companion to ByAPIKey: call counts
+	// (recalls + remembers) per key/actor, sourced from the memory
+	// ingest/retrieval audit trail rather than task_llm_usage. It covers
+	// traffic ByAPIKey structurally can't — kg_extraction and other
+	// task-less memory background work carry no api_key_id at all, but
+	// the audit trail stamps actor identity on every call regardless.
+	// AvailableMemoryUsage is false when neither audit repo is wired.
+	MemoryUsageByKey     []MemoryUsageByKeyRow
+	AvailableMemoryUsage bool
+
 	// Phase 1 signal cohorts — one row per (worker role, model) seen
 	// in step-outcome hallucination signals over the active window.
 	// Distinct from HallucinationRollup, which keys on the judge's
@@ -351,6 +361,17 @@ func (s *Server) Spend(w http.ResponseWriter, r *http.Request) {
 	}
 	iter := projectsToIterate(queryIDs)
 
+	now := time.Now().UTC()
+	since := now.Add(-time.Duration(data.WindowDays) * 24 * time.Hour)
+
+	// Independent of llmUsageRepo below: sourced from the memory audit
+	// trail, not task_llm_usage, so a deployment can have this panel
+	// without cost attribution wired at all.
+	data.AvailableMemoryUsage = s.memoryIngestAudit != nil || s.memoryRetrievalAudit != nil
+	if data.AvailableMemoryUsage {
+		data.MemoryUsageByKey = s.memoryActorUsageForScope(ctx, iter, since)
+	}
+
 	if s.llmUsageRepo == nil {
 		// Repo not wired — render a degraded page rather than
 		// 500'ing. The headline shows zeros + an explanatory
@@ -358,9 +379,6 @@ func (s *Server) Spend(w http.ResponseWriter, r *http.Request) {
 		s.render(w, "spend.html", data)
 		return
 	}
-
-	now := time.Now().UTC()
-	since := now.Add(-time.Duration(data.WindowDays) * 24 * time.Hour)
 
 	// Source split is the first thing we want — it answers the
 	// operator's headline question "is the dispatcher itself

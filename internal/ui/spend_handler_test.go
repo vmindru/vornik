@@ -193,3 +193,41 @@ func TestSpend_ProjectsListPopulatesFromRegistry(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "p1")
 }
+
+// TestSpend_MemoryUsageByKeyPanelRendersCallCounts — the "Usage per
+// key (RAG)" panel is a non-cost companion to the API-key cost table,
+// sourced from the memory audit trail. Pin that it renders call
+// counts (not dollars) and resolves a companion actor's key identity.
+func TestSpend_MemoryUsageByKeyPanelRendersCallCounts(t *testing.T) {
+	now := time.Now().UTC()
+	retrieval := &fakeRetrievalAudit{
+		rows: []*persistence.MemoryRetrievalAudit{
+			{ID: "r1", ProjectID: "p1", Query: "q1", ActorKind: stringPtr("companion:claude-code"), ActorID: stringPtr("akey_1"), RetrievedAt: now},
+		},
+	}
+	ingest := &fakeIngestAudit{
+		rows: []*persistence.MemoryIngestAudit{
+			{ID: "ming_1", ProjectID: "p1", ActorKind: stringPtr("companion:claude-code"), ActorID: stringPtr("akey_1"),
+				SourceName: "note-1", Decision: "admitted", ChunksAdmitted: 2, IngestedAt: now},
+		},
+	}
+	srv := NewServer(WithMemoryRetrievalAuditRepository(retrieval), WithMemoryIngestAuditRepository(ingest))
+	req := httptest.NewRequest(http.MethodGet, "/spend", nil)
+	rec := httptest.NewRecorder()
+	srv.Spend(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "Usage per key (RAG)")
+	assert.Contains(t, body, "companion:claude-code")
+}
+
+// TestSpend_MemoryUsageByKeyPanelHiddenWhenNoAuditRepos — no repos
+// wired means the panel doesn't render at all (not an empty table).
+func TestSpend_MemoryUsageByKeyPanelHiddenWhenNoAuditRepos(t *testing.T) {
+	srv := NewServer()
+	req := httptest.NewRequest(http.MethodGet, "/spend", nil)
+	rec := httptest.NewRecorder()
+	srv.Spend(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "Usage per key (RAG)")
+}

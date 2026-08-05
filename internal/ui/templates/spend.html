@@ -457,6 +457,58 @@
             </div>
             {{end}}
 
+            {{/* Usage per key — a non-cost companion to the table above,
+                 sourced from the memory ingest/retrieval audit trail
+                 instead of task_llm_usage. It covers what cost attribution
+                 structurally can't: kg_extraction and other task-less
+                 memory background work carry no api_key_id at all, but
+                 every recall/remember call is stamped with actor identity
+                 regardless. See /ui/admin/memory-audit's "By key" tab for
+                 the same rollup with drill-down filters. */}}
+            {{if .AvailableMemoryUsage}}
+            <div class="glass rounded-xl border border-dark-700 overflow-hidden">
+                <div class="px-5 py-3.5 border-b border-dark-700/60 flex items-center justify-between gap-2 flex-wrap">
+                    <h2 class="text-sm font-semibold text-gray-200">Usage per key (RAG) · {{.WindowLabel}}</h2>
+                    <span class="text-xs text-gray-500">recall/remember call counts — independent of the cost table above</span>
+                </div>
+                {{if .MemoryUsageByKey}}
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-sm">
+                        <thead><tr class="border-b border-dark-700/60">
+                            <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Key / actor</th>
+                            <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Recalls</th>
+                            <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Remembers</th>
+                            <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Chunks admitted</th>
+                            <th scope="col" class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total calls</th>
+                        </tr></thead>
+                        <tbody class="divide-y divide-dark-700/30">
+                            {{range .MemoryUsageByKey}}
+                            <tr class="hover:bg-dark-700/40">
+                                <td class="px-4 py-1.5">
+                                    {{if .NoIdentity}}
+                                    <span class="text-gray-500 italic">Unattributed</span>
+                                    {{else if .KeyName}}
+                                    <span class="text-gray-300" title="{{.KeyName}}">{{.KeyName}}</span>
+                                    {{if .KeyPrefix}}<span class="text-gray-500 font-mono text-xs">{{.KeyPrefix}}…</span>{{end}}
+                                    {{else}}
+                                    <span class="text-gray-400 font-mono text-xs">{{.ActorKind}}{{if .ActorID}} · {{.ActorID}}{{end}}</span>
+                                    {{end}}
+                                </td>
+                                <td class="px-4 py-1.5 text-right text-gray-400 tabular-nums">{{.RecallCalls}}</td>
+                                <td class="px-4 py-1.5 text-right text-gray-400 tabular-nums">{{.RememberCalls}}</td>
+                                <td class="px-4 py-1.5 text-right text-gray-400 tabular-nums">{{.ChunksAdmitted}}</td>
+                                <td class="px-4 py-1.5 text-right text-gray-200 font-semibold tabular-nums">{{.TotalCalls}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{else}}
+                <div class="px-5 py-8 text-center text-gray-500 text-sm">No recall/remember activity in this window.</div>
+                {{end}}
+            </div>
+            {{end}}
+
             {{/* Phase 1 cohort table. Aggregated from
                  execution_step_outcomes over the active window —
                  one row per (worker role, model) cohort that

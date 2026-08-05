@@ -29,6 +29,10 @@ type AdminMemoryAuditData struct {
 	// without dimming the whole page.
 	AvailableRetrieval bool
 	AvailableIngest    bool
+	// AvailableByKey is true when at least one of the two audit repos
+	// is wired — the "By key" tab renders a partial rollup (recalls
+	// only, or remembers only) rather than requiring both.
+	AvailableByKey bool
 	// Filters echoed back to the form. Free-form strings so the
 	// template can rehydrate the input values verbatim.
 	FilterProject   string
@@ -41,6 +45,7 @@ type AdminMemoryAuditData struct {
 	// One slice populated per tab.
 	Retrieval []*persistence.MemoryRetrievalAudit
 	Ingest    []*persistence.MemoryIngestAudit
+	ByKey     []MemoryUsageByKeyRow
 	// Error surfaces a per-query failure (e.g. PageSize=0 from a
 	// malformed URL the operator pasted). The page still renders;
 	// the table area shows the message inline.
@@ -54,7 +59,7 @@ type AdminMemoryAuditData struct {
 func (s *Server) AdminMemoryAudit(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	tab := q.Get("tab")
-	if tab != "ingest" {
+	if tab != "ingest" && tab != "by-key" {
 		tab = "retrieval"
 	}
 	limit := adminClampLimit(q.Get("limit"))
@@ -67,6 +72,7 @@ func (s *Server) AdminMemoryAudit(w http.ResponseWriter, r *http.Request) {
 		Tab:                tab,
 		AvailableRetrieval: s.memoryRetrievalAudit != nil,
 		AvailableIngest:    s.memoryIngestAudit != nil,
+		AvailableByKey:     s.memoryRetrievalAudit != nil || s.memoryIngestAudit != nil,
 		FilterProject:      q.Get("project"),
 		FilterActorKind:    q.Get("actor_kind"),
 		FilterRepoScope:    q.Get("repo_scope"),
@@ -93,6 +99,8 @@ func (s *Server) AdminMemoryAudit(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	switch tab {
+	case "by-key":
+		data.ByKey = s.memoryActorUsageForScope(ctx, []string{data.FilterProject}, since)
 	case "ingest":
 		if s.memoryIngestAudit == nil {
 			break

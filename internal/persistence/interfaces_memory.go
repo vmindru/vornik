@@ -103,6 +103,12 @@ type MemoryIngestAuditRepository interface {
 	// /ui/admin/memory-audit ingest panel. Rejects filter.PageSize
 	// <= 0 to keep the page bounded.
 	List(ctx context.Context, filter MemoryIngestAuditFilter) ([]*MemoryIngestAudit, error)
+
+	// AggregateByActor groups ingest calls by (actor_kind, actor_id) over
+	// [since, until) — until zero means unbounded — resolving companion
+	// actors against api_keys. limit <= 0 means unbounded. Powers the
+	// memory-audit "By key" tab and the spend page's usage-per-key panel.
+	AggregateByActor(ctx context.Context, projectID string, since, until time.Time, limit int) ([]MemoryActorUsage, error)
 }
 
 // MemoryRetrievalAuditRepository persists per-search records of which
@@ -134,6 +140,13 @@ type MemoryRetrievalAuditRepository interface {
 	// projects with thousands of searches per day. Powers B-16's
 	// /ui/admin/memory-audit retrieval panel.
 	List(ctx context.Context, filter MemoryRetrievalAuditFilter) ([]*MemoryRetrievalAudit, error)
+
+	// AggregateByActor groups recall calls by (actor_kind, actor_id) over
+	// [since, until) — until zero means unbounded — resolving companion
+	// actors against api_keys. limit <= 0 means unbounded. ChunksAdmitted
+	// is always zero on these rows (ingest-only field). Powers the
+	// memory-audit "By key" tab and the spend page's usage-per-key panel.
+	AggregateByActor(ctx context.Context, projectID string, since, until time.Time, limit int) ([]MemoryActorUsage, error)
 }
 
 // MemorySearchStageRepository persists per-search stage rows into

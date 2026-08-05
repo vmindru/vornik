@@ -42,6 +42,10 @@ func (r *recordingAudit) List(context.Context, persistence.MemoryRetrievalAuditF
 	return nil, nil
 }
 
+func (r *recordingAudit) AggregateByActor(context.Context, string, time.Time, time.Time, int) ([]persistence.MemoryActorUsage, error) {
+	return nil, nil
+}
+
 func TestNewSearcher_AndSetters(t *testing.T) {
 	r, _, cleanup := newRepo(t)
 	defer cleanup()

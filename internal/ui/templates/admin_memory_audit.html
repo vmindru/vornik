@@ -22,7 +22,12 @@
                 searches, <span class="font-mono text-gray-400">rest_api</span> /
                 <span class="font-mono text-gray-400">ui</span> for operator-direct
                 requests. Use this to answer "who pulled X out of memory?" and
-                "where did this chunk come from?"
+                "where did this chunk come from?" The <strong>By key</strong>
+                tab rolls the same audit trail up into call counts per key —
+                use it to answer "which key/session is actually using RAG?"
+                independent of the <a href="/ui/spend" class="text-brand-400 hover:text-brand-300">spend
+                dashboard</a>'s cost attribution, which can't see task-less
+                memory traffic at all.
             </p>
 
             {{/* Tab strip — query-string driven so the browser back button
@@ -32,6 +37,8 @@
                    class="px-3 py-2 -mb-px border-b-2 {{if eq .Tab "retrieval"}}border-brand-400 text-brand-300{{else}}border-transparent text-gray-400 hover:text-gray-200{{end}}">Retrieval</a>
                 <a href="/ui/admin/memory-audit?tab=ingest{{if .FilterProject}}&project={{.FilterProject}}{{end}}{{if .FilterActorKind}}&actor_kind={{.FilterActorKind}}{{end}}{{if .FilterRepoScope}}&repo_scope={{.FilterRepoScope}}{{end}}{{if .FilterDecision}}&decision={{.FilterDecision}}{{end}}{{if .FilterSince}}&since={{.FilterSince}}{{end}}"
                    class="px-3 py-2 -mb-px border-b-2 {{if eq .Tab "ingest"}}border-brand-400 text-brand-300{{else}}border-transparent text-gray-400 hover:text-gray-200{{end}}">Ingest</a>
+                <a href="/ui/admin/memory-audit?tab=by-key{{if .FilterProject}}&project={{.FilterProject}}{{end}}{{if .FilterSince}}&since={{.FilterSince}}{{end}}"
+                   class="px-3 py-2 -mb-px border-b-2 {{if eq .Tab "by-key"}}border-brand-400 text-brand-300{{else}}border-transparent text-gray-400 hover:text-gray-200{{end}}">By key</a>
             </div>
 
             <form method="get" action="/ui/admin/memory-audit"
@@ -41,6 +48,7 @@
                     <span class="block text-xs text-gray-500 uppercase tracking-wider mb-1">Project</span>
                     <input type="text" name="project" value="{{.FilterProject}}" class="bg-dark-700 border border-dark-600 text-gray-200 text-xs rounded-md px-2 py-1 w-44">
                 </label>
+                {{if ne .Tab "by-key"}}
                 <label class="block">
                     <span class="block text-xs text-gray-500 uppercase tracking-wider mb-1">Actor kind</span>
                     <input type="text" name="actor_kind" value="{{.FilterActorKind}}" placeholder="companion:claude-code" class="bg-dark-700 border border-dark-600 text-gray-200 text-xs rounded-md px-2 py-1 w-52">
@@ -49,6 +57,7 @@
                     <span class="block text-xs text-gray-500 uppercase tracking-wider mb-1">Repo scope</span>
                     <input type="text" name="repo_scope" value="{{.FilterRepoScope}}" placeholder="github.com/owner/repo" class="bg-dark-700 border border-dark-600 text-gray-200 text-xs rounded-md px-2 py-1 w-52">
                 </label>
+                {{end}}
                 {{if eq .Tab "ingest"}}
                 <label class="block">
                     <span class="block text-xs text-gray-500 uppercase tracking-wider mb-1">Decision</span>
@@ -127,6 +136,43 @@
                 </div>
                 {{else}}
                 <div class="px-5 py-12 text-center text-gray-500 text-sm">No ingest-audit entries match the filter.</div>
+                {{end}}
+            </div>
+            {{else if eq .Tab "by-key"}}
+            <div class="glass rounded-xl border border-dark-700 overflow-hidden">
+                {{if not .AvailableByKey}}
+                <div class="px-5 py-12 text-center text-gray-500 text-sm">Neither audit repository is wired.</div>
+                {{else if .ByKey}}
+                <div class="overflow-x-auto">
+                    <table class="min-w-full">
+                        <thead><tr class="border-b border-dark-700/60">
+                            <th scope="col" class="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Key / actor</th>
+                            <th scope="col" class="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
+                            <th scope="col" class="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Recalls</th>
+                            <th scope="col" class="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Remembers</th>
+                            <th scope="col" class="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Chunks admitted</th>
+                            <th scope="col" class="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total calls</th>
+                        </tr></thead>
+                        <tbody class="divide-y divide-dark-700/40">
+                            {{range .ByKey}}
+                            <tr class="hover:bg-dark-700/40 transition-colors">
+                                <td class="px-4 py-2 text-xs text-gray-300">
+                                    {{if .NoIdentity}}<span class="italic text-gray-500">Unattributed</span>
+                                    {{else if .KeyName}}{{.KeyName}}{{if .KeyPrefix}} <span class="text-gray-500 font-mono">({{.KeyPrefix}})</span>{{end}}
+                                    {{else}}<span class="font-mono">{{.ActorKind}}{{if .ActorID}} · {{.ActorID}}{{end}}</span>{{end}}
+                                </td>
+                                <td class="px-4 py-2 whitespace-nowrap text-xs text-gray-400 font-mono">{{if .ClientKind}}{{.ClientKind}}{{else}}<span class="text-gray-600">—</span>{{end}}</td>
+                                <td class="px-4 py-2 whitespace-nowrap text-xs text-gray-300 font-mono text-right">{{.RecallCalls}}</td>
+                                <td class="px-4 py-2 whitespace-nowrap text-xs text-gray-300 font-mono text-right">{{.RememberCalls}}</td>
+                                <td class="px-4 py-2 whitespace-nowrap text-xs text-gray-400 font-mono text-right">{{.ChunksAdmitted}}</td>
+                                <td class="px-4 py-2 whitespace-nowrap text-xs text-gray-100 font-mono text-right font-semibold">{{.TotalCalls}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{else}}
+                <div class="px-5 py-12 text-center text-gray-500 text-sm">No usage recorded for this filter.</div>
                 {{end}}
             </div>
             {{else}}

@@ -207,6 +207,63 @@ func (r *MemoryRetrievalAuditRepository) List(ctx context.Context, filter persis
 	return out, rows.Err()
 }
 
+// AggregateByActor groups recall calls by (actor_kind, actor_id),
+// resolving companion actors against api_keys — see
+// persistence.MemoryActorUsage for why only "companion:*" actors
+// resolve to a key identity. ChunksAdmitted is always zero (ingest-only
+// field); left populated by the ingest repo's own AggregateByActor.
+func (r *MemoryRetrievalAuditRepository) AggregateByActor(ctx context.Context, projectID string, since, until time.Time, limit int) ([]persistence.MemoryActorUsage, error) {
+	query := `
+		SELECT COALESCE(m.actor_kind, '') AS actor_kind,
+		       COALESCE(m.actor_id, '') AS actor_id,
+		       COALESCE(k.name, '') AS key_name,
+		       COALESCE(k.key_prefix, '') AS key_prefix,
+		       COALESCE(k.session_label, '') AS session_label,
+		       COALESCE(k.client_kind, '') AS client_kind,
+		       COUNT(*) AS call_count
+		FROM memory_retrieval_audit m
+		LEFT JOIN api_keys k ON k.id = m.actor_id AND m.actor_kind LIKE 'companion:%'
+		WHERE 1=1`
+	var args []any
+	pos := 1
+	if projectID != "" {
+		query += fmt.Sprintf(" AND m.project_id = $%d", pos)
+		args = append(args, projectID)
+		pos++
+	}
+	if !since.IsZero() {
+		query += fmt.Sprintf(" AND m.retrieved_at >= $%d", pos)
+		args = append(args, since)
+		pos++
+	}
+	if !until.IsZero() {
+		query += fmt.Sprintf(" AND m.retrieved_at < $%d", pos)
+		args = append(args, until)
+		pos++
+	}
+	query += ` GROUP BY m.actor_kind, m.actor_id, k.name, k.key_prefix, k.session_label, k.client_kind
+		ORDER BY call_count DESC`
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", pos)
+		args = append(args, limit)
+	}
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, mapDBError(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []persistence.MemoryActorUsage
+	for rows.Next() {
+		var u persistence.MemoryActorUsage
+		if err := rows.Scan(&u.ActorKind, &u.ActorID, &u.KeyName, &u.KeyPrefix,
+			&u.SessionLabel, &u.ClientKind, &u.CallCount); err != nil {
+			return nil, mapDBError(err)
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
 // joinAnd concatenates clauses with " AND " — kept here so the
 // formatter+linter sees a single tight function instead of inline
 // string ops in List.

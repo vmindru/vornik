@@ -152,6 +152,60 @@ func (r *MemoryIngestAuditRepository) List(ctx context.Context, filter persisten
 	return out, rows.Err()
 }
 
+// AggregateByActor groups ingest calls by (actor_kind, actor_id),
+// resolving companion actors against api_keys — see
+// persistence.MemoryActorUsage for why only "companion:*" actors
+// resolve to a key identity. GROUP BY only the actor columns (not the
+// joined api_keys columns too) is safe because api_keys.id is unique,
+// same convention as AggregateByAPIKey.
+func (r *MemoryIngestAuditRepository) AggregateByActor(ctx context.Context, projectID string, since, until time.Time, limit int) ([]persistence.MemoryActorUsage, error) {
+	q := `
+		SELECT COALESCE(m.actor_kind, ''),
+		       COALESCE(m.actor_id, ''),
+		       COALESCE(k.name, ''),
+		       COALESCE(k.key_prefix, ''),
+		       COALESCE(k.session_label, ''),
+		       COALESCE(k.client_kind, ''),
+		       COUNT(*),
+		       COALESCE(SUM(m.chunks_admitted), 0)
+		FROM memory_ingest_audit m
+		LEFT JOIN api_keys k ON k.id = m.actor_id AND m.actor_kind LIKE 'companion:%'
+		WHERE 1=1`
+	var args []any
+	if projectID != "" {
+		q += " AND m.project_id = ?"
+		args = append(args, projectID)
+	}
+	if !since.IsZero() {
+		q += " AND m.ingested_at >= ?"
+		args = append(args, sqliteTime(since))
+	}
+	if !until.IsZero() {
+		q += " AND m.ingested_at < ?"
+		args = append(args, sqliteTime(until))
+	}
+	q += " GROUP BY m.actor_kind, m.actor_id ORDER BY 7 DESC"
+	if limit > 0 {
+		q += " LIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []persistence.MemoryActorUsage
+	for rows.Next() {
+		var u persistence.MemoryActorUsage
+		if err := rows.Scan(&u.ActorKind, &u.ActorID, &u.KeyName, &u.KeyPrefix,
+			&u.SessionLabel, &u.ClientKind, &u.CallCount, &u.ChunksAdmitted); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
 // joinAndSqlite concatenates clauses with " AND " — sqlite-package-
 // local to avoid colliding with the postgres helper of the same
 // intent in the sibling package.

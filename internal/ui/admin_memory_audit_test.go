@@ -65,6 +65,42 @@ func (f *fakeRetrievalAudit) List(_ context.Context, filter persistence.MemoryRe
 	return out, nil
 }
 
+func (f *fakeRetrievalAudit) AggregateByActor(_ context.Context, projectID string, since, until time.Time, limit int) ([]persistence.MemoryActorUsage, error) {
+	counts := map[[2]string]int{}
+	var order [][2]string
+	for _, e := range f.rows {
+		if projectID != "" && e.ProjectID != projectID {
+			continue
+		}
+		if !since.IsZero() && e.RetrievedAt.Before(since) {
+			continue
+		}
+		if !until.IsZero() && !e.RetrievedAt.Before(until) {
+			continue
+		}
+		key := [2]string{strPtrVal(e.ActorKind), strPtrVal(e.ActorID)}
+		if counts[key] == 0 {
+			order = append(order, key)
+		}
+		counts[key]++
+	}
+	out := make([]persistence.MemoryActorUsage, 0, len(order))
+	for _, key := range order {
+		out = append(out, persistence.MemoryActorUsage{ActorKind: key[0], ActorID: key[1], CallCount: counts[key]})
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func strPtrVal(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 type fakeIngestAudit struct {
 	rows       []*persistence.MemoryIngestAudit
 	listErr    error
@@ -107,6 +143,40 @@ func (f *fakeIngestAudit) List(_ context.Context, filter persistence.MemoryInges
 		if filter.PageSize > 0 && len(out) >= filter.PageSize {
 			break
 		}
+	}
+	return out, nil
+}
+
+func (f *fakeIngestAudit) AggregateByActor(_ context.Context, projectID string, since, until time.Time, limit int) ([]persistence.MemoryActorUsage, error) {
+	counts := map[[2]string]int{}
+	chunks := map[[2]string]int64{}
+	var order [][2]string
+	for _, e := range f.rows {
+		if projectID != "" && e.ProjectID != projectID {
+			continue
+		}
+		if !since.IsZero() && e.IngestedAt.Before(since) {
+			continue
+		}
+		if !until.IsZero() && !e.IngestedAt.Before(until) {
+			continue
+		}
+		key := [2]string{strPtrVal(e.ActorKind), strPtrVal(e.ActorID)}
+		if counts[key] == 0 {
+			order = append(order, key)
+		}
+		counts[key]++
+		chunks[key] += int64(e.ChunksAdmitted)
+	}
+	out := make([]persistence.MemoryActorUsage, 0, len(order))
+	for _, key := range order {
+		out = append(out, persistence.MemoryActorUsage{
+			ActorKind: key[0], ActorID: key[1],
+			CallCount: counts[key], ChunksAdmitted: chunks[key],
+		})
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }
@@ -247,4 +317,46 @@ func TestAdminMemoryAudit_RoutedFromAdminRouter(t *testing.T) {
 	// Sanity-check the tab-strip rendered both tabs.
 	body := rec.Body.String()
 	assert.True(t, strings.Contains(body, "Retrieval") && strings.Contains(body, "Ingest"))
+}
+
+// TestAdminMemoryAudit_ByKeyTabMergesIngestAndRetrieval — the
+// headline usage-by-key feature: one actor with both recall and
+// remember activity must render as a single merged row (not two),
+// with its key identity resolved and a non-companion actor kept
+// distinct rather than folded into "Unattributed".
+func TestAdminMemoryAudit_ByKeyTabMergesIngestAndRetrieval(t *testing.T) {
+	retrieval := &fakeRetrievalAudit{
+		rows: []*persistence.MemoryRetrievalAudit{
+			{ID: "r1", ProjectID: "p1", Query: "q1", ActorKind: stringPtr("companion:claude-code"), ActorID: stringPtr("akey_1")},
+			{ID: "r2", ProjectID: "p1", Query: "q2", ActorKind: stringPtr("agent"), ActorID: stringPtr("kg_extractor")},
+		},
+	}
+	ingest := &fakeIngestAudit{
+		rows: []*persistence.MemoryIngestAudit{
+			{ID: "ming_1", ProjectID: "p1", ActorKind: stringPtr("companion:claude-code"), ActorID: stringPtr("akey_1"),
+				SourceName: "note-1", Decision: "admitted", ChunksAdmitted: 3},
+		},
+	}
+	srv := NewServer(WithMemoryRetrievalAuditRepository(retrieval), WithMemoryIngestAuditRepository(ingest))
+	req := httptest.NewRequest(http.MethodGet, "/admin/memory-audit?tab=by-key", nil)
+	rec := httptest.NewRecorder()
+	srv.AdminMemoryAudit(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "companion:claude-code")
+	assert.Contains(t, body, "agent")
+	// akey_1's row shows both a recall (1) and a remember (1) count —
+	// proof the two rollups merged into one row instead of two.
+	assert.Contains(t, body, "kg_extractor")
+}
+
+// TestAdminMemoryAudit_ByKeyTabNotWiredWhenNeitherRepoPresent —
+// same "degrade, don't 500" contract as the other two tabs.
+func TestAdminMemoryAudit_ByKeyTabNotWiredWhenNeitherRepoPresent(t *testing.T) {
+	srv := NewServer()
+	req := httptest.NewRequest(http.MethodGet, "/admin/memory-audit?tab=by-key", nil)
+	rec := httptest.NewRecorder()
+	srv.AdminMemoryAudit(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Neither audit repository is wired")
 }

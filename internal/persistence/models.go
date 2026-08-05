@@ -1524,6 +1524,38 @@ type MemoryIngestAudit struct {
 	RepoScope *string `json:"repo_scope,omitempty"`
 }
 
+// MemoryActorUsage is one row of a per-actor call-count rollup over
+// memory_ingest_audit or memory_retrieval_audit, resolving companion
+// actors to their api_keys identity. It answers "who is using RAG" —
+// a usage (call-count) question the spend dashboard's cost attribution
+// structurally can't answer, since kg_extraction and other memory
+// background work is task-less and carries no api_key_id at all (see
+// migration 149). This rollup instead reads the audit trail, which
+// stamps actor_kind/actor_id on every recall/remember call directly.
+//
+// ActorKind is the raw column value ("companion:<client_kind>", "agent",
+// "rest_api", "ui", or "" for legacy pre-migration-72 rows). Only
+// "companion:*" actors resolve to a real api_keys row — KeyName /
+// KeyPrefix / SessionLabel / ClientKind stay empty for "agent" (whose
+// ActorID is a role name, not a key) and for "rest_api"/"ui" (which
+// carry no actor_id). An empty ActorKind is the true "no identity at
+// all" bucket; the other kinds are meaningfully labelled even without
+// a resolved key, so callers must not collapse them into "Unattributed".
+//
+// ChunksAdmitted is populated by the ingest rollup only (sum of
+// chunks_admitted); it stays zero for the retrieval rollup.
+type MemoryActorUsage struct {
+	ActorKind    string
+	ActorID      string
+	KeyName      string
+	KeyPrefix    string
+	SessionLabel string
+	ClientKind   string
+	CallCount    int
+
+	ChunksAdmitted int64
+}
+
 // CorpusEpoch is one row of corpus_epochs — the manifest for one
 // ingest pipeline run. Iceberg-style snapshot. IsActive is filled
 // by joins through corpus_epochs_active when listing.

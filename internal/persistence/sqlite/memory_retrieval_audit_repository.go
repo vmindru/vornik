@@ -187,3 +187,56 @@ func (r *MemoryRetrievalAuditRepository) List(ctx context.Context, filter persis
 	}
 	return out, rows.Err()
 }
+
+// AggregateByActor groups recall calls by (actor_kind, actor_id),
+// resolving companion actors against api_keys — see
+// persistence.MemoryActorUsage for why only "companion:*" actors
+// resolve to a key identity. ChunksAdmitted is always zero (ingest-only
+// field). GROUP BY only the actor columns is safe because api_keys.id
+// is unique, same convention as AggregateByAPIKey.
+func (r *MemoryRetrievalAuditRepository) AggregateByActor(ctx context.Context, projectID string, since, until time.Time, limit int) ([]persistence.MemoryActorUsage, error) {
+	q := `
+		SELECT COALESCE(m.actor_kind, ''),
+		       COALESCE(m.actor_id, ''),
+		       COALESCE(k.name, ''),
+		       COALESCE(k.key_prefix, ''),
+		       COALESCE(k.session_label, ''),
+		       COALESCE(k.client_kind, ''),
+		       COUNT(*)
+		FROM memory_retrieval_audit m
+		LEFT JOIN api_keys k ON k.id = m.actor_id AND m.actor_kind LIKE 'companion:%'
+		WHERE 1=1`
+	var args []any
+	if projectID != "" {
+		q += " AND m.project_id = ?"
+		args = append(args, projectID)
+	}
+	if !since.IsZero() {
+		q += " AND m.retrieved_at >= ?"
+		args = append(args, sqliteTime(since))
+	}
+	if !until.IsZero() {
+		q += " AND m.retrieved_at < ?"
+		args = append(args, sqliteTime(until))
+	}
+	q += " GROUP BY m.actor_kind, m.actor_id ORDER BY 7 DESC"
+	if limit > 0 {
+		q += " LIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []persistence.MemoryActorUsage
+	for rows.Next() {
+		var u persistence.MemoryActorUsage
+		if err := rows.Scan(&u.ActorKind, &u.ActorID, &u.KeyName, &u.KeyPrefix,
+			&u.SessionLabel, &u.ClientKind, &u.CallCount); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
